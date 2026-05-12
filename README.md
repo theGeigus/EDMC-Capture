@@ -1,6 +1,6 @@
 # EDMC Capture
 A plugin for [Elite Dangerous Market Connector](https://github.com/Marginal/EDMarketConnector) that allows for:
-- Conversion of the screenshot to alternate formats (.png / .jpeg)
+- Conversion of the screenshot to alternate formats (.png / .jpg)
 - Renaming screenshots based on your current in-game location
 - Moving images to an alternate directory
 - Importing images into your Steam screenshot library

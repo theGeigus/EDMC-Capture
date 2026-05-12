@@ -18,6 +18,7 @@ from pathlib import Path
 from datetime import datetime
 
 from threading import Thread, Lock
+import re
 
 
 ### Setup ###
@@ -227,7 +228,7 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: di
         
         extension = image_type.get()
 
-        original_path = Path(elite_path.get(), entry["Filename"].split("\\")[-1])
+        original_path = Path(elite_path.get()) / Path(entry["Filename"]).name
         
         logger.info(f"Found screenshot at {original_path}")
         
