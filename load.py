@@ -17,10 +17,12 @@ from pathlib import Path
 
 from datetime import datetime
 
+from threading import Thread, Lock
+
 
 ### Setup ###
 
-__version__ = "0.1.0-beta"
+__version__ = "0.1.0-beta.1"
 plugin_name = os.path.basename(os.path.dirname(__file__))
 plugin_url = "https://github.com/theGeigus/EDMC-Capture"
 logger = logging.getLogger(f'{appname}.{plugin_name}')
@@ -53,12 +55,12 @@ def plugin_start3(plugin_dir: str) -> str:
     logger.info(f"Starting {plugin_name} - Version {__version__}")
     
     global elite_path, image_move, image_path, image_type, steam_path, steam_move
-    elite_path = tk.StringVar(value=config.get_str("capture_elite")) or ""
-    image_move = tk.BooleanVar(value=config.get_bool("capture_move")) or 0
-    image_path = tk.StringVar(value=config.get_str("capture_path")) or ""
-    image_type = tk.StringVar(value=config.get_str("capture_type")) or ".png"
-    steam_move = tk.BooleanVar(value=config.get_bool("capture_smove")) or 0
-    steam_path = tk.StringVar(value=config.get_str("capture_spath")) or ""
+    elite_path = tk.StringVar(value=config.get_str("capture_elite") or "")
+    image_move = tk.BooleanVar(value=config.get_bool("capture_move") or 0)
+    image_path = tk.StringVar(value=config.get_str("capture_path") or "")
+    image_type = tk.StringVar(value=config.get_str("capture_type") or ".png")
+    steam_move = tk.BooleanVar(value=config.get_bool("capture_smove") or 0)
+    steam_path = tk.StringVar(value=config.get_str("capture_spath") or "")
     
     return plugin_name
 
@@ -74,7 +76,9 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
     
     def update_ui_states(*args):
         i_entry.configure(state="normal" if image_move.get() else "disabled")
+        i_button.configure(state="normal" if image_move.get() else "disabled")
         s_entry.configure(state="normal" if steam_move.get() else "disabled")
+        s_button.configure(state="normal" if steam_move.get() else "disabled")
         
     def browse_elite_path():
         directory = filedialog.askdirectory(initialdir=elite_path.get())
@@ -125,7 +129,9 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
     nb.Label(frame, text="Image directory:").grid(sticky=tk.W, row=9, column=0, padx=padx+10, pady=pady)
     i_entry = ttk.Entry(frame, textvariable=image_path)
     i_entry.grid(row=9, column=1, sticky=tk.EW, padx=padx, pady=pady)
-    ttk.Button(frame, text="Browse", command=browse_image_path).grid(sticky=tk.E, row=10, column=1, padx=padx, pady=pady)
+    i_button = ttk.Button(frame, text="Browse", command=browse_image_path)
+    i_button.grid(sticky=tk.E, row=10, column=1, padx=padx, pady=pady)
+    
     
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=11, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
     
@@ -137,7 +143,8 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
     nb.Label(frame, text="Steam screenshot directory:").grid(sticky=tk.W, row=14, column=0, padx=padx+10, pady=pady)
     s_entry = ttk.Entry(frame, textvariable=steam_path)
     s_entry.grid(row=15, column=1, sticky=tk.EW, padx=padx, pady=pady)
-    ttk.Button(frame, text="Browse", command=browse_steam_path).grid(sticky=tk.E, row=16, column=1, padx=padx, pady=pady)
+    s_button = ttk.Button(frame, text="Browse", command=browse_steam_path)
+    s_button.grid(sticky=tk.E, row=16, column=1, padx=padx, pady=pady)
 
     update_ui_states()
 
@@ -154,6 +161,58 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
 
 ## Events ###
 
+steam_lock = Lock()
+file_lock = Lock()
+
+def handle_screenshot(filename, extension, original_path, move, move_dir, steam, steam_dir, elite_dir):
+    ### Steam ###
+    if steam: 
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            
+            folder = Path(steam_dir)
+            
+            steam_save_dir = folder / f"{timestamp}_1.jpg"
+            
+            with steam_lock:
+                counter = 1
+                while steam_save_dir.exists():
+                    counter += 1
+                    steam_save_dir = folder / f"{timestamp}_{counter}.jpg"
+                try:
+                    with Image.open(original_path) as img:
+                        img.save(steam_save_dir)
+                    
+                    logger.info(f"Image saved to Steam: {steam_save_dir}")
+                
+                except FileNotFoundError as e:
+                    logger.error(f"Could not find path \"{steam_save_dir}\" - Is this path correct? Does EDMC have permission to access it?\n{e}")
+                except Exception as e:
+                    logger.error(f"An unknown error has occurred: {e}")
+    
+    ### Image Directory ###        
+    folder = Path(move_dir) if move else Path(elite_dir)
+    
+    target_path = folder / f"{filename}{extension}"
+        
+    counter = 0
+    
+    with file_lock:
+        while target_path.exists():
+            # If {target}.png exists, try {target}(1).png, etc.
+            counter += 1
+            target_path = folder / f"{filename}({counter}){extension}"
+        
+        try:
+            with Image.open(original_path) as img:
+                img.save(target_path)
+            logger.info(f"Image moved to target: {target_path}")
+            original_path.unlink()
+            
+        except FileNotFoundError as e:
+            logger.error(f"Could not find path \"{original_path}\" - Is this path correct? Does EDMC have permission to access it?\n{e}")
+        except Exception as e:
+            logger.error(f"An unknown error has occurred: {e}")
+
 def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: dict[str, Any], state: dict[str, Any]) -> str | None:
     if entry['event'] == 'Screenshot':
         
@@ -163,55 +222,13 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: di
         # logger.debug(f"Interesting vars:\nCMDR:{cmdr}\n\nSystem:{system}\n\nStation:{station}\n\nEntry:{print_dict(entry)}\n\nState:{print_dict(state)}")
         ###
 
-        filename = f"{state["SystemName"] or "Unknown"}{f" - {state["Body"]}" if state["Body"] else f" - {state["Station"]}" if state["Station"] else ""}"
+        dirty_filename = f"{state["SystemName"] or "Unknown"}{f" - {state["Body"]}" if state["Body"] else f" - {state["Station"]}" if state["Station"] else ""}"
+        filename = re.sub(r'[<>:"/\\|?*]', '_', dirty_filename)
+        
         extension = image_type.get()
 
         original_path = Path(elite_path.get(), entry["Filename"].split("\\")[-1])
         
         logger.info(f"Found screenshot at {original_path}")
         
-        ### Steam ###
-        if steam_move.get():
-            try: 
-                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                
-                folder = Path(steam_path.get())
-                
-                counter = 1
-                steam_save_path = folder / f"{timestamp}_1.jpg"
-                
-                while steam_save_path.exists():
-                    counter += 1
-                    target_path = folder / f"{timestamp}_{counter}.jpg"
-            
-                img = Image.open(original_path)
-                img.save(steam_save_path)
-                
-                logger.info(f"Image saved to Steam: {steam_save_path}")
-                
-            except FileNotFoundError as e:
-                logger.error(f"Could not find path \"{steam_save_path}\" - Is this path correct? Does EDMC have permission to access it?\n{e}")
-            except Exception as e:
-                logger.error(f"An unknown error has occurred: {e}")
-        
-        ### Image Directory ###        
-        folder = Path(image_path.get()) if image_move.get() else Path(elite_path.get())
-        
-        target_path = folder / f"{filename}{extension}"
-            
-        counter = 0
-        while target_path.exists():
-            # If {target}.png exists, try {target}(1).png, etc.
-            counter += 1
-            target_path = folder / f"{filename}({counter}){extension}"
-        
-        try:
-            img = Image.open(original_path)
-            img.save(target_path)
-            logger.info(f"Image moved to target: {target_path}")
-            original_path.unlink()
-            
-        except FileNotFoundError as e:
-            logger.error(f"Could not find path \"{original_path}\" - Is this path correct? Does EDMC have permission to access it?\n{e}")
-        except Exception as e:
-            logger.error(f"An unknown error has occurred: {e}")
+        Thread(target=handle_screenshot, args=(filename, extension, original_path, image_move.get(), image_path.get(), steam_move.get(), steam_path.get(), elite_path.get()), daemon=True).start()

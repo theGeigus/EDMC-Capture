@@ -10,7 +10,7 @@ A plugin for [Elite Dangerous Market Connector](https://github.com/Marginal/EDMa
 2. Download the latest plugin release from [Releases](https://github.com/theGeigus/EDMC-Capture/releases) (.zip file).
 3. Extract the .zip file into EDMC's plugins directory.
     - You can open this folder from within EDMC via *File → Settings → Plugins → Open Plugins Folder*.
-    - **Note** The plugin files must be in their own folder. The layout should look like: `.../Plugins/EDMC Capture/load.py`
+    - **Note** The plugin files must be in their own folder. The layout should look like: `.../plugins/EDMC Capture/load.py`
 4. Restart EDMC.
 
 ## Setup
