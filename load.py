@@ -48,17 +48,21 @@ def print_dict(d: dict) -> str:
 elite_path: Optional[tk.StringVar] = None
 image_move: Optional[tk.BooleanVar] = None
 image_path: Optional[tk.StringVar] = None
+image_name: Optional[tk.StringVar] = None
 image_type: Optional[tk.StringVar] = None
 steam_move: Optional[tk.BooleanVar] = None
 steam_path: Optional[tk.StringVar] = None
 
+name_default = "{system} - {location}"
+
 def plugin_start3(plugin_dir: str) -> str:
     logger.info(f"Starting {plugin_name} - Version {__version__}")
     
-    global elite_path, image_move, image_path, image_type, steam_path, steam_move
+    global elite_path, image_move, image_path, image_name, image_type, steam_move, steam_path
     elite_path = tk.StringVar(value=config.get_str("capture_elite") or "")
     image_move = tk.BooleanVar(value=config.get_bool("capture_move") or 0)
     image_path = tk.StringVar(value=config.get_str("capture_path") or "")
+    image_name = tk.StringVar(value=config.get_str("capture_name") or name_default)
     image_type = tk.StringVar(value=config.get_str("capture_type") or ".png")
     steam_move = tk.BooleanVar(value=config.get_bool("capture_smove") or 0)
     steam_path = tk.StringVar(value=config.get_str("capture_spath") or "")
@@ -110,9 +114,15 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
     
     ### Image Type
     nb.Label(frame, text="Convert image").grid(sticky=tk.W, row=2, column=0, padx=padx, pady=pady)
-    nb.Label(frame, text="File type:").grid(sticky=tk.W, row=3, column=0, padx=padx+10, pady=pady)
-    combo = ttk.Combobox(frame, values=extensions, textvariable=image_type, state="readonly")
-    combo.grid(sticky=tk.W, row=3, column=1, padx=padx, pady=pady)
+    nb.Label(frame, text="File name:").grid(sticky=tk.W, row=3, column=0, padx=padx+10, pady=pady)
+    
+    file_frame = nb.Frame(frame)
+    file_frame.columnconfigure(1, weight=1)
+    file_frame.grid(sticky=tk.EW, row=3, column=1, padx=padx, pady=pady)
+    
+    ttk.Entry(file_frame, textvariable=image_name).grid(sticky=tk.EW, row=1, column=1)
+    combo = ttk.Combobox(file_frame, values=extensions, textvariable=image_type, state="readonly")
+    combo.grid(sticky=tk.EW, row=1, column=2)
     combo.set(image_type.get())
     
     ### Elite Image
@@ -155,6 +165,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
     config.set("capture_elite", elite_path.get())
     config.set("capture_move", image_move.get())
     config.set("capture_path", image_path.get())
+    config.set("capture_name", image_name.get())
     config.set("capture_type", image_type.get())
     config.set("capture_smove", steam_move.get())
     config.set("capture_spath", steam_path.get())
@@ -193,7 +204,12 @@ def handle_screenshot(filename, extension, original_path, move, move_dir, steam,
     ### Image Directory ###        
     folder = Path(move_dir) if move else Path(elite_dir)
     
+    if not folder.exists():
+        logger.error(f"Folder {folder} does not exist or EDMC does not have access to it. Check permissions and path.")
+        return
+    
     target_path = folder / f"{filename}{extension}"
+    target_path.parent.mkdir(parents=True, exist_ok=True)
         
     counter = 0
     
@@ -219,16 +235,37 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: di
         
         ### DEBUG ###
         logger.info(f"Screenshot taken. Path: {entry["Filename"]}," + 
-        f"Location: {state["SystemName"]}{f" - {state["Body"]}" if state["Body"] else f" - {state["Station"]}" if state["Station"] else ""}")
+        f"Location: {state.get("SystemName")}{f" - {state.get("Body")}" if state.get("Body") else f" - {state.get("Station")}" if state.get("Station") else ""}")
         # logger.debug(f"Interesting vars:\nCMDR:{cmdr}\n\nSystem:{system}\n\nStation:{station}\n\nEntry:{print_dict(entry)}\n\nState:{print_dict(state)}")
         ###
 
-        dirty_filename = f"{state["SystemName"] or "Unknown"}{f" - {state["Body"]}" if state["Body"] else f" - {state["Station"]}" if state["Station"] else ""}"
-        filename = re.sub(r'[<>:"/\\|?*]', '_', dirty_filename)
+        now = datetime.now()
+        elite_year = now.year + 1286
+
+        ### Template Vars ###
+        replacements = {
+            "system": state.get("SystemName") or "Unknown System",
+            "location": (state.get("Station") if state.get("Station") else state.get("Body")) or "Unknown",
+            "body": state.get("Body") or "Unknown",
+            "station": state.get("Station") or "Unknown",
+            "month": now.strftime("%m"),
+            "day": now.strftime("%d"),
+            "year": now.strftime("%Y"),
+            "elite_year": str(elite_year),
+            "hour": now.strftime("%H"),
+            "minute": now.strftime("%M"),
+            "second": now.strftime("%S"),
+        }
+        
+        dirty_filename = image_name.get().format_map(replacements)
+            
+        filename = re.sub(r'[<>:"|?*]', '_', dirty_filename)
+        
+        logger.info(f"Image name: {filename}")
         
         extension = image_type.get()
 
-        original_path = Path(elite_path.get()) / Path(entry["Filename"]).name
+        original_path = Path(elite_path.get()) / Path(entry["Filename"].split("\\")[-1])
         
         logger.info(f"Found screenshot at {original_path}")
         

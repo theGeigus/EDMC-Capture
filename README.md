@@ -29,7 +29,7 @@ Once configured, simply take a screenshot in-game using your Elite Dangerous key
 If using the Flatpak variant of EDMC, ensure the application has permission to access the Elite Dangerous photo directory, your Steam photo directory, and your target directory.
 
 ## Planned Features:
-- [ ] Customizable naming format for screenshots
+- [x] Customizable naming format for screenshots
 - [ ] Auto detection of Elite's image path (or just autofill Windows path)
 - [ ] Auto Detection of Steam's screenshot path (via .vdf)
 
