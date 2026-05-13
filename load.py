@@ -1,26 +1,23 @@
 from __future__ import annotations
+
 import logging
 import os
-
-from config import appname, config
-import edmc_data
+import platform
+import re
+from collections.abc import Mapping
+from datetime import datetime
+from functools import partial
+from pathlib import Path
+from threading import Thread, Lock
+from typing import Any
 
 import tkinter as tk
+from PIL import Image
 from tkinter import ttk, filedialog
 from ttkHyperlinkLabel import HyperlinkLabel
+
 import myNotebook as nb
-from typing import Optional, Any
-
-from EDMCLogging import get_main_logger
-from PIL import Image
-from pathlib import Path
-
-from datetime import datetime
-
-from threading import Thread, Lock
-import re
-from functools import partial
-import platform
+from config import appname, config
 
 
 ### Setup ###
@@ -41,31 +38,15 @@ if not logger.hasHandlers():
     logger_channel.setFormatter(logger_formatter)
     logger.addHandler(logger_channel)
 
-# def print_dict(d: dict) -> str:
-#     res = ""
-#     for keys, values in d.items():
-#         res += f"    {keys}: {values}\n"
-#     return res
-
-elite_path: Optional[tk.StringVar] = None
-image_move: Optional[tk.BooleanVar] = None
-image_path: Optional[tk.StringVar] = None
-image_name: Optional[tk.StringVar] = None
-image_type: Optional[tk.StringVar] = None
-steam_move: Optional[tk.BooleanVar] = None
-steam_path: Optional[tk.StringVar] = None
-
-name_default = "{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})"
-
-def check_path(path, error_text = None, log_errors = True) -> bool:
+def check_path(path: Path, error_text = None, log_errors: bool = True) -> bool:
         if not path.is_dir():
             if log_errors: logger.error(f"Folder {path} does not exist or EDMC does not have access to it. Check permissions and path.")
             return False
         else:
             return True
 
-def find_paths() -> list[Path]:
-    possible_paths = None
+def find_paths() -> list[str]:
+    possible_paths: list[Path] = []
     if platform.system() == "Windows":
         possible_paths = [Path.home() / r"Pictures\Frontier Developments\Elite Dangerous"]
     elif platform.system() == "Linux":
@@ -78,21 +59,33 @@ def find_paths() -> list[Path]:
             Path.home() / "Games/Prefixes/default/Elite Dangerous" / wine_path
         ]
 
-    found_paths = []
+    found_paths: list[str] = []
     for path in possible_paths:
         if check_path(path, log_errors = False):
-            found_paths.append(path.absolute())
+            found_paths.append(str(path.absolute()))
 
     logger.debug(f"Found {len(found_paths)} possible paths: {found_paths}")
 
     return found_paths
 
-def from_template(txt, state):
+
+name_default = "{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})"
+
+elite_path = tk.StringVar(value=config.get_str("capture_elite") or (find_paths()[:1] or [""])[0])
+image_move = tk.BooleanVar(value=config.get_bool("capture_move") or False)
+image_path = tk.StringVar(value=config.get_str("capture_path") or "")
+image_name = tk.StringVar(value=config.get_str("capture_name") or name_default)
+image_type = tk.StringVar(value=config.get_str("capture_type") or ".png")
+steam_move = tk.BooleanVar(value=config.get_bool("capture_smove") or False)
+steam_path = tk.StringVar(value=config.get_str("capture_spath") or "")
+
+
+def from_template(txt: str, state: Mapping[str, str | None]) -> str:
 
     now = datetime.now()
     elite_year = now.year + 1286
 
-    replacements = {
+    replacements: dict[str, str | None] = {
         "system": state.get("SystemName") or "Unknown System",
         "location": (state.get("Station") if state.get("Station") else state.get("Body")) or "Deep Space",
         "body": state.get("Body") or "Deep Space",
@@ -101,7 +94,7 @@ def from_template(txt, state):
         "ship_id": state.get("ShipIdent"),
         "month": now.strftime("%m"),
         "day": now.strftime("%d"),
-        "year": now.strftime("%Y"),
+        "year": now.strftime(format="%Y"),
         "elite_year": str(elite_year),
         "hour": now.strftime("%H"),
         "minute": now.strftime("%M"),
@@ -112,7 +105,7 @@ def from_template(txt, state):
 
 guide_instance = None
 
-def guide_window(parent):
+def guide_window(parent: nb.Notebook):
 
     global guide_instance
 
@@ -156,24 +149,14 @@ def guide_window(parent):
 
 
 def plugin_start3(plugin_dir: str) -> str:
-    logger.info(f"Starting {plugin_name} - Version {__version__}")
-
-    global elite_path, image_move, image_path, image_name, image_type, steam_move, steam_path
-    elite_path = tk.StringVar(value=config.get_str("capture_elite") or find_paths()[0])
-    image_move = tk.BooleanVar(value=config.get_bool("capture_move") or 0)
-    image_path = tk.StringVar(value=config.get_str("capture_path") or "")
-    image_name = tk.StringVar(value=config.get_str("capture_name") or name_default)
-    image_type = tk.StringVar(value=config.get_str("capture_type") or ".png")
-    steam_move = tk.BooleanVar(value=config.get_bool("capture_smove") or 0)
-    steam_path = tk.StringVar(value=config.get_str("capture_spath") or "")
-
+    logger.info(f"Starting {plugin_name}({plugin_dir}) - Version {__version__}")
     return plugin_name
 
 
 ### Config ###
 
-def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
-    logger.debug("Loading Capture Settings")
+def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> tk.Frame | None:
+    logger.debug(f"Loading Capture Settings - CMDR: {cmdr} - Beta: {is_beta}")
 
     global elite_path, image_move, image_path, image_type, steam_path, steam_move
 
@@ -187,13 +170,13 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
         "ShipIdent": "ER-418"
     }
 
-    def update_ui_states(*args):
+    def update_ui_states():
         i_entry.configure(state="normal" if image_move.get() else "disabled")
         i_button.configure(state="normal" if image_move.get() else "disabled")
         s_entry.configure(state="normal" if steam_move.get() else "disabled")
         s_button.configure(state="normal" if steam_move.get() else "disabled")
 
-    def update_preview(*args):
+    def update_preview(*args):  # pyright: ignore[reportMissingParameterType, reportUnusedParameter]
         preview_label.configure(text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
 
     def browse_elite_path():
@@ -283,7 +266,7 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
 
     return frame
 
-def prefs_changed(cmdr: str, is_beta: bool) -> None:
+def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pyright: ignore[reportUnusedParameter]
     config.set("capture_elite", elite_path.get())
     config.set("capture_move", image_move.get())
     config.set("capture_path", image_path.get())
@@ -298,7 +281,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:
 steam_lock = Lock()
 file_lock = Lock()
 
-def handle_screenshot(filename, extension, original_path, move, move_dir, steam, steam_dir, elite_dir):
+def handle_screenshot(filename: str, extension: str, original_path: Path, move: bool, move_dir: str, steam: bool, steam_dir: str, elite_dir: str):
     ### Steam
     if steam:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -352,11 +335,11 @@ def handle_screenshot(filename, extension, original_path, move, move_dir, steam,
         except Exception as e:
             logger.error(f"An unknown error has occurred: {e}")
 
-def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: dict[str, Any], state: dict[str, Any]) -> str | None:
+def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: dict[str, str | Any], state: dict[str, str | Any]) -> str | None:  # pyright: ignore[reportUnusedParameter, reportExplicitAny]
     if entry['event'] == 'Screenshot':
 
         ### DEBUG ###
-        logger.info(f"Screenshot taken. Path: {entry["Filename"]}," +
+        logger.info(f"Screenshot taken. Path: {entry.get("Filename")}," +
         f"Location: {state.get("SystemName")}{f" - {state.get("Body")}" if state.get("Body") else f" - {state.get("Station")}" if state.get("Station") else ""}")
         # logger.debug(f"Interesting vars:\nCMDR:{cmdr}\n\nSystem:{system}\n\nStation:{station}\n\nEntry:{print_dict(entry)}\n\nState:{print_dict(state)}")
         ###
@@ -367,7 +350,7 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: di
 
         extension = image_type.get()
 
-        original_path = Path(elite_path.get()) / Path(entry["Filename"].split("\\")[-1])
+        original_path = Path(elite_path.get()) / Path(entry.get("Filename").split("\\")[-1])
 
         logger.info(f"Found screenshot at {original_path}")
 
