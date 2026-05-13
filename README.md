@@ -57,7 +57,7 @@ If using the Flatpak variant of EDMC, ensure the application has permission to a
 
 ## Planned Features:
 - [x] Customizable naming format for screenshots
-- [ ] Auto detection of Elite's image path (or just autofill Windows path)
+- [x] Auto detection of Elite's image path (or just autofill Windows path)
 - [ ] Auto Detection of Steam's screenshot path (via .vdf)
 
 ## License

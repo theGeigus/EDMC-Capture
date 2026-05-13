@@ -53,10 +53,12 @@ def find_paths() -> list[str]:
         wine_path = "drive_c/users/steamuser/Pictures/Frontier Developments/Elite Dangerous"
         possible_paths = [
             Path.home() / ".steam/steam/steamapps/compatdata/359320/pfx" / wine_path,
+            Path.home() / ".local/share/Steam/steamapps/compatdata/359320/pfx" / wine_path,
             Path.home() / ".var/app/com.valvesoftware.Steam/.steam/steam/steamapps/compatdata/359320/pfx" / wine_path,
             Path.home() / "snap/steam/common/.local/share/Steam/steamapps/compatdata/359320/pfx" / wine_path,
             Path.home() / "Games/Prefixes/default/Elite Dangerous/pfx" / wine_path,
-            Path.home() / "Games/Prefixes/default/Elite Dangerous" / wine_path
+            Path.home() / "Games/Prefixes/default/Elite Dangerous" / wine_path,
+            Path.home() / ".heroic/Prefixes/default/Elite Dangerous" / wine_path
         ]
 
     found_paths: list[str] = []
@@ -69,15 +71,22 @@ def find_paths() -> list[str]:
     return found_paths
 
 
-name_default = "{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})"
+name_templates = [
+    "{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})",
+    "{system} - {location} - {elite_year}-{month}-{day}",
+    "{year}{month}{day}_{hour}{minute}{second}",
+    "{system}/{location}/{elite_year}-{month}-{day} {hour}_{minute}_{second}",
+    "{ship} - {ship_id}/{elite_year}-{month}-{day} {hour}_{minute}_{second}"
+]
 
 elite_path = tk.StringVar(value=config.get_str("capture_elite") or (find_paths()[:1] or [""])[0])
 image_move = tk.BooleanVar(value=config.get_bool("capture_move") or False)
 image_path = tk.StringVar(value=config.get_str("capture_path") or "")
-image_name = tk.StringVar(value=config.get_str("capture_name") or name_default)
+image_name = tk.StringVar(value=config.get_str("capture_name") or name_templates[0])
 image_type = tk.StringVar(value=config.get_str("capture_type") or ".png")
 steam_move = tk.BooleanVar(value=config.get_bool("capture_smove") or False)
 steam_path = tk.StringVar(value=config.get_str("capture_spath") or "")
+original_delete = tk.BooleanVar(value=config.get_bool("capture_delete") or True)
 
 
 def from_template(txt: str, state: Mapping[str, str | None]) -> str:
@@ -90,7 +99,7 @@ def from_template(txt: str, state: Mapping[str, str | None]) -> str:
         "location": (state.get("Station") if state.get("Station") else state.get("Body")) or "Deep Space",
         "body": state.get("Body") or "Deep Space",
         "station": state.get("Station") or "Unknown",
-        "ship": state.get("ShipName"),
+        "ship": state.get("ShipName") or state.get("ShipType").title() or "Unknown",
         "ship_id": state.get("ShipIdent"),
         "month": now.strftime("%m"),
         "day": now.strftime("%d"),
@@ -177,7 +186,10 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> tk.Frame | No
         s_button.configure(state="normal" if steam_move.get() else "disabled")
 
     def update_preview(*args):  # pyright: ignore[reportMissingParameterType, reportUnusedParameter]
-        preview_label.configure(text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
+        try:
+            preview_label.configure(text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
+        except:
+            preview_label.configure(text="Preview: Malformed, check formatting.")
 
     def browse_elite_path():
         directory = filedialog.askdirectory(initialdir=elite_path.get())
@@ -207,15 +219,15 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> tk.Frame | No
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
 
     ### Image Type
-    nb.Label(frame, text="Convert image").grid(sticky=tk.W, row=2, column=0, padx=padx, pady=pady)
-    nb.Label(frame, text="File name:").grid(sticky=tk.W, row=3, column=0, padx=padx+10, pady=pady)
+    nb.Label(frame, text="Save image as").grid(sticky=tk.W, row=10, column=0, padx=padx, pady=pady)
+    nb.Label(frame, text="File name:").grid(sticky=tk.W, row=11, column=0, padx=padx+10, pady=pady)
 
     file_frame = nb.Frame(frame)
     file_frame.columnconfigure(1, weight=1)
-    file_frame.grid(sticky=tk.EW, row=3, column=1, padx=padx, pady=pady)
+    file_frame.grid(sticky=tk.EW, row=11, column=1, padx=padx, pady=pady)
 
-    file_field = ttk.Entry(file_frame, textvariable=image_name)
-    file_field.grid(sticky=tk.EW, row=1, column=1)
+    file_combo = ttk.Combobox(file_frame, values=name_templates, textvariable=image_name)
+    file_combo.grid(sticky=tk.EW, row=1, column=1)
     image_name.trace_add('write', update_preview)
 
     file_combo = ttk.Combobox(file_frame, values=extensions, textvariable=image_type, state="readonly")
@@ -223,44 +235,55 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> tk.Frame | No
     file_combo.set(image_type.get())
     image_type.trace_add('write', update_preview)
 
-    preview_label = nb.Label(file_frame, text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
-    preview_label.grid(sticky=tk.EW, row=2, column=1)
+    preview_label = nb.Label(frame, text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
+    preview_label.grid(sticky=tk.EW, row=12, column=1, padx=padx, pady=pady)
 
-    ttk.Button(file_frame, text="Guide", command=partial(guide_window, parent)).grid(sticky=tk.E, row=2, column=2, pady=pady)
+    ttk.Button(frame, text="Guide", command=partial(guide_window, parent)).grid(sticky=tk.E, row=12, column=1, pady=pady)
+
+    nb.Checkbutton(frame, text="Delete original", variable=original_delete).grid(sticky=tk.W, row=13, column=0, padx=padx+10, pady=pady)
+
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=14, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
 
     ### Elite Image
-    nb.Label(frame, text="Elite image directory:").grid(sticky=tk.W, row=4, column=0, padx=padx+10, pady=pady)
-    elite_combo = ttk.Combobox(frame, textvariable=elite_path, values=find_paths())
-    elite_combo.grid(sticky=tk.EW, row=4, column=1, padx=padx, pady=pady)
-    elite_combo.set(elite_path.get())
-    ttk.Button(frame, text="Browse", command=browse_elite_path).grid(sticky=tk.E, row=5, column=1, padx=padx, pady=pady)
+    elite_found_path = find_paths()
+    elite_path_count = len(elite_found_path)
 
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=6, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
+    nb.Label(frame, text="Elite path setup").grid(sticky=tk.W, row=20, column=0, padx=padx, pady=pady)
+    nb.Label(frame, text="Elite image directory:").grid(sticky=tk.W, row=21, column=0, padx=padx+10, pady=pady)
+    elite_combo = ttk.Combobox(frame, textvariable=elite_path, values=elite_found_path)
+    elite_combo.grid(sticky=tk.EW, row=21, column=1, padx=padx, pady=pady)
+    elite_combo.set(elite_path.get())
+    tk.Label(
+        master=frame,
+        text=f"Found {elite_path_count} possible path{"" if elite_path_count == 1 else "s"}. {"Please" if elite_path_count == 0 else "Use dropdown to select or"} enter path manually."
+    ).grid(sticky=tk.W, row=22, column=1, padx=padx, pady=pady)
+    ttk.Button(frame, text="Browse", command=browse_elite_path).grid(sticky=tk.E, row=22, column=1, padx=padx, pady=pady)
+
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=23, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
 
     ### New Image
-    nb.Label(frame, text="Move image to new location").grid(sticky=tk.W, row=7, column=0, padx=padx, pady=pady)
+    nb.Label(frame, text="Move image to new location").grid(sticky=tk.W, row=30, column=0, padx=padx, pady=pady)
 
-    nb.Checkbutton(frame, text="Move image", variable=image_move, command=update_ui_states).grid(sticky=tk.W, row=8, column=0, padx=padx+10, pady=pady)
+    nb.Checkbutton(frame, text="Move image", variable=image_move, command=update_ui_states).grid(sticky=tk.W, row=31, column=0, padx=padx+10, pady=pady)
 
-    nb.Label(frame, text="Image directory:").grid(sticky=tk.W, row=9, column=0, padx=padx+10, pady=pady)
+    nb.Label(frame, text="Image directory:").grid(sticky=tk.W, row=32, column=0, padx=padx+10, pady=pady)
     i_entry = ttk.Entry(frame, textvariable=image_path)
-    i_entry.grid(row=9, column=1, sticky=tk.EW, padx=padx, pady=pady)
+    i_entry.grid(row=32, column=1, sticky=tk.EW, padx=padx, pady=pady)
     i_button = ttk.Button(frame, text="Browse", command=browse_image_path)
-    i_button.grid(sticky=tk.E, row=10, column=1, padx=padx, pady=pady)
+    i_button.grid(sticky=tk.E, row=33, column=1, padx=padx, pady=pady)
 
-
-    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=11, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
+    ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=34, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
 
     ### Steam Image
-    nb.Label(frame, text="Add image to Steam screenshots (added after Steam restarts):").grid(sticky=tk.W, row=12, column=0, columnspan=2, padx=padx, pady=pady)
+    nb.Label(frame, text="Add image to Steam screenshots (added after Steam restarts):").grid(sticky=tk.W, row=40, column=0, columnspan=2, padx=padx, pady=pady)
 
-    nb.Checkbutton(frame, text="Add to Steam", variable=steam_move, command=update_ui_states).grid(sticky=tk.W, row=13, column=0, padx=padx+10, pady=pady)
+    nb.Checkbutton(frame, text="Add to Steam", variable=steam_move, command=update_ui_states).grid(sticky=tk.W, row=41, column=0, padx=padx+10, pady=pady)
 
-    nb.Label(frame, text="Steam screenshot directory:").grid(sticky=tk.W, row=14, column=0, padx=padx+10, pady=pady)
+    nb.Label(frame, text="Steam screenshot directory:").grid(sticky=tk.W, row=42, column=0, padx=padx+10, pady=pady)
     s_entry = ttk.Entry(frame, textvariable=steam_path)
-    s_entry.grid(row=15, column=1, sticky=tk.EW, padx=padx, pady=pady)
+    s_entry.grid(row=42, column=1, sticky=tk.EW, padx=padx, pady=pady)
     s_button = ttk.Button(frame, text="Browse", command=browse_steam_path)
-    s_button.grid(sticky=tk.E, row=16, column=1, padx=padx, pady=pady)
+    s_button.grid(sticky=tk.E, row=43, column=1, padx=padx, pady=pady)
 
     update_ui_states()
 
@@ -274,6 +297,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pyright: ignore[reportUn
     config.set("capture_type", image_type.get())
     config.set("capture_smove", steam_move.get())
     config.set("capture_spath", steam_path.get())
+    config.set("capture_delete", original_delete.get())
 
 
 ## Events ###
@@ -281,7 +305,7 @@ def prefs_changed(cmdr: str, is_beta: bool) -> None:  # pyright: ignore[reportUn
 steam_lock = Lock()
 file_lock = Lock()
 
-def handle_screenshot(filename: str, extension: str, original_path: Path, move: bool, move_dir: str, steam: bool, steam_dir: str, elite_dir: str):
+def handle_screenshot(filename: str, extension: str, original_path: Path, move: bool, move_dir: str, steam: bool, steam_dir: str, elite_dir: str, delete: bool):
     ### Steam
     if steam:
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -325,10 +349,13 @@ def handle_screenshot(filename: str, extension: str, original_path: Path, move: 
             target_path = folder / f"{filename}({counter}){extension}"
 
         try:
-            with Image.open(original_path) as img:
-                img.save(target_path)
-            logger.info(f"Image moved to target: {target_path}")
-            original_path.unlink()
+            if extension == ".bmp":
+                original_path.rename(target_path)
+            else:
+                with Image.open(original_path) as img:
+                    img.save(target_path)
+                logger.info(f"Image moved to target: {target_path}")
+                if delete: original_path.unlink()
 
         except FileNotFoundError as e:
             logger.error(f"Could not find path \"{original_path}\" - Is this path correct? Does EDMC have permission to access it?\n{e}")
@@ -354,4 +381,4 @@ def journal_entry(cmdr: str, is_beta: bool, system: str, station: str, entry: di
 
         logger.info(f"Found screenshot at {original_path}")
 
-        Thread(target=handle_screenshot, args=(filename, extension, original_path, image_move.get(), image_path.get(), steam_move.get(), steam_path.get(), elite_path.get()), daemon=True).start()
+        Thread(target=handle_screenshot, args=(filename, extension, original_path, image_move.get(), image_path.get(), steam_move.get(), steam_path.get(), elite_path.get(), original_delete.get()), daemon=True).start()
