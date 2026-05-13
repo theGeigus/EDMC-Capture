@@ -20,6 +20,7 @@ from datetime import datetime
 from threading import Thread, Lock
 import re
 from functools import partial
+import platform
 
 
 ### Setup ###
@@ -40,11 +41,11 @@ if not logger.hasHandlers():
     logger_channel.setFormatter(logger_formatter)
     logger.addHandler(logger_channel)
 
-def print_dict(d: dict) -> str:
-    res = ""
-    for keys, values in d.items():
-        res += f"    {keys}: {values}\n"
-    return res
+# def print_dict(d: dict) -> str:
+#     res = ""
+#     for keys, values in d.items():
+#         res += f"    {keys}: {values}\n"
+#     return res
 
 elite_path: Optional[tk.StringVar] = None
 image_move: Optional[tk.BooleanVar] = None
@@ -55,6 +56,36 @@ steam_move: Optional[tk.BooleanVar] = None
 steam_path: Optional[tk.StringVar] = None
 
 name_default = "{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})"
+
+def check_path(path, error_text = None, log_errors = True) -> bool:
+        if not path.is_dir():
+            if log_errors: logger.error(f"Folder {path} does not exist or EDMC does not have access to it. Check permissions and path.")
+            return False
+        else:
+            return True
+
+def find_paths() -> list[Path]:
+    possible_paths = None
+    if platform.system() == "Windows":
+        possible_paths = [Path.home() / r"Pictures\Frontier Developments\Elite Dangerous"]
+    elif platform.system() == "Linux":
+        wine_path = "drive_c/users/steamuser/Pictures/Frontier Developments/Elite Dangerous"
+        possible_paths = [
+            Path.home() / ".steam/steam/steamapps/compatdata/359320/pfx" / wine_path,
+            Path.home() / ".var/app/com.valvesoftware.Steam/.steam/steam/steamapps/compatdata/359320/pfx" / wine_path,
+            Path.home() / "snap/steam/common/.local/share/Steam/steamapps/compatdata/359320/pfx" / wine_path,
+            Path.home() / "Games/Prefixes/default/Elite Dangerous/pfx" / wine_path,
+            Path.home() / "Games/Prefixes/default/Elite Dangerous" / wine_path
+        ]
+
+    found_paths = []
+    for path in possible_paths:
+        if check_path(path, log_errors = False):
+            found_paths.append(path.absolute())
+
+    logger.debug(f"Found {len(found_paths)} possible paths: {found_paths}")
+
+    return found_paths
 
 def from_template(txt, state):
 
@@ -96,21 +127,21 @@ def guide_window(parent):
     table = [
         "Naming Format:\n\n",
         "Files can be named using a template. The following keys can be used:\n\n",
-        "|Variable       |Description                                                |Example        |\n",
-        "|---------------|-----------------------------------------------------------|---------------|\n",
-        "|`{system}`     |Current star system                                        |`Altair`       |\n",
-        "|`{body}`       |Nearest planetary body (if any, otherwise \"Deep Space\")    |`Darkes Hollow`|\n",
-        "|`{station}`    |Nearest station (if any, otherwise \"Unknown\")              |`Solo Orbiter` |\n",
-        "|`{location}`   |Same as `{station}` if available, otherwise `{body}`       |`Solo Orbiter` |\n",
-        "|`{ship}`       |The name of your current ship                              |`Teapot`       |\n",
-        "|`{ship_id}`    |The ID of your current ship                                |`ER-418`       |\n",
-        "|`{elite_year}` |In-game year                                               |`3312`         |\n",
-        "|`{year}`       |Real-world year                                            |`2026`         |\n",
-        "|`{month}`      |Month (01-12)                                              |`05`           |\n",
-        "|`{day}`        |Day (01-31)                                                |`12`           |\n",
-        "|`{hour}`       |Hour (00-23)                                               |`14`           |\n",
-        "|`{minute}`     |Minute (00-59)                                             |`35`           |\n",
-        "|`{second}`     |Second (00-59)                                             |`08`           |\n\n",
+        "| Variable    | Description                                               | Example        |\n",
+        "|-------------|-----------------------------------------------------------|----------------|\n",
+        "| {system}    | Current star system                                       | `Altair`       |\n",
+        "| {body}      | Nearest planetary body (if any, otherwise \"Deep Space\")   | `Darkes Hollow`|\n",
+        "| {station}   | Nearest station (if any, otherwise \"Unknown\")             | `Solo Orbiter` |\n",
+        "| {location}  | Same as `{station}` if available, otherwise `{body}`      | `Solo Orbiter` |\n",
+        "| {ship}      | The name of your current ship                             | `Teapot`       |\n",
+        "| {ship_id}   | The ID of your current ship                               | `ER-418`       |\n",
+        "| {elite_year}| In-game year                                              | `3312`         |\n",
+        "| {year}      | Real-world year                                           | `2026`         |\n",
+        "| {month}     | Month (01-12)                                             | `05`           |\n",
+        "| {day}       | Day (01-31)                                               | `12`           |\n",
+        "| {hour}      | Hour (00-23)                                              | `14`           |\n",
+        "| {minute}    | Minute (00-59)                                            | `35`           |\n",
+        "| {second}    | Second (00-59)                                            | `08`           |\n\n",
         "**Default template**: `{elite_year}-{month}-{day} {hour}_{minute}_{second} ({system} - {location})`\n\n",
         "**Note**: You can use `/` in your format to automatically sort screenshots into folders\n",
         "- Example: `{system}/{year}_{month}_{day}` will create a folder for the star system.\n",
@@ -128,7 +159,7 @@ def plugin_start3(plugin_dir: str) -> str:
     logger.info(f"Starting {plugin_name} - Version {__version__}")
 
     global elite_path, image_move, image_path, image_name, image_type, steam_move, steam_path
-    elite_path = tk.StringVar(value=config.get_str("capture_elite") or "")
+    elite_path = tk.StringVar(value=config.get_str("capture_elite") or find_paths()[0])
     image_move = tk.BooleanVar(value=config.get_bool("capture_move") or 0)
     image_path = tk.StringVar(value=config.get_str("capture_path") or "")
     image_name = tk.StringVar(value=config.get_str("capture_name") or name_default)
@@ -169,6 +200,7 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
         directory = filedialog.askdirectory(initialdir=elite_path.get())
         if directory:
             elite_path.set(directory)
+            elite_combo.set(directory)
 
     def browse_image_path():
         directory = filedialog.askdirectory(initialdir=image_path.get())
@@ -179,12 +211,6 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
         directory = filedialog.askdirectory(initialdir=steam_path.get())
         if directory:
             steam_path.set(directory)
-
-    def check_path(path, error_text):
-        if not path.exists():
-            logger.error(f"Folder {folder} does not exist or EDMC does not have access to it. Check permissions and path.")
-        else:
-            return
 
     padx, pady = 5, 2
 
@@ -209,9 +235,9 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
     file_field.grid(sticky=tk.EW, row=1, column=1)
     image_name.trace_add('write', update_preview)
 
-    combo = ttk.Combobox(file_frame, values=extensions, textvariable=image_type, state="readonly")
-    combo.grid(sticky=tk.EW, row=1, column=2)
-    combo.set(image_type.get())
+    file_combo = ttk.Combobox(file_frame, values=extensions, textvariable=image_type, state="readonly")
+    file_combo.grid(sticky=tk.EW, row=1, column=2)
+    file_combo.set(image_type.get())
     image_type.trace_add('write', update_preview)
 
     preview_label = nb.Label(file_frame, text=f"Preview: {from_template(image_name.get(), sample_state)}{image_type.get()}")
@@ -221,7 +247,9 @@ def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.F
 
     ### Elite Image
     nb.Label(frame, text="Elite image directory:").grid(sticky=tk.W, row=4, column=0, padx=padx+10, pady=pady)
-    ttk.Entry(frame, textvariable=elite_path).grid(sticky=tk.EW, row=4, column=1, padx=padx, pady=pady)
+    elite_combo = ttk.Combobox(frame, textvariable=elite_path, values=find_paths())
+    elite_combo.grid(sticky=tk.EW, row=4, column=1, padx=padx, pady=pady)
+    elite_combo.set(elite_path.get())
     ttk.Button(frame, text="Browse", command=browse_elite_path).grid(sticky=tk.E, row=5, column=1, padx=padx, pady=pady)
 
     ttk.Separator(frame, orient=tk.HORIZONTAL).grid(row=6, column=0, columnspan=2, sticky=tk.EW, padx=padx, pady=pady)
